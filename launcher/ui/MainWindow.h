@@ -50,10 +50,17 @@
 
 class LaunchController;
 class NewsChecker;
+class NewsEntry;
 class QToolButton;
 class InstanceProxyModel;
 class LabeledToolButton;
 class QLabel;
+class QTabWidget;
+class QTextBrowser;
+class QComboBox;
+class QPushButton;
+class QVBoxLayout;
+class LogView;
 class MinecraftInstance;
 class MinecraftLauncher;
 class BaseProfilerFactory;
@@ -218,6 +225,12 @@ class MainWindow : public QMainWindow {
 
     void refreshCurrentInstance();
 
+    void refreshProfileCombo();
+    void onProfileComboChanged(int row);
+    void refreshClassicAccount();
+    void refreshClassicStatus();
+    void refreshNewsTab();
+
    private:
     void retranslateUi();
 
@@ -228,6 +241,7 @@ class MainWindow : public QMainWindow {
     void setSelectedInstanceById(const QString& id);
     void updateStatusCenter();
     void setInstanceActionsEnabled(bool enabled);
+    void setupClassicLayout();
 
     void runModalTask(Task* task);
     void instanceFromInstanceTask(InstanceTask* task);
@@ -244,6 +258,23 @@ class MainWindow : public QMainWindow {
     LabeledToolButton* renameButton = nullptr;
     QToolButton* helpMenuButton = nullptr;
     KonamiCode* secretEventFilter = nullptr;
+    // OLauncher-classic layout widgets (system theme, no stylesheets).
+    // Top tabs match O screenshot order: Update Notes | Launcher Log | Profile Editor.
+    QTabWidget* m_classicTabs = nullptr;
+    QWidget* m_newsPage = nullptr;
+    QWidget* m_logPage = nullptr;
+    QWidget* m_profilesPage = nullptr;
+    QVBoxLayout* m_profilesPageLayout = nullptr;
+    QTextBrowser* m_newsBrowser = nullptr;
+    LogView* m_logView = nullptr;
+    QComboBox* m_profileCombo = nullptr;
+    QPushButton* m_playButton = nullptr;
+    QPushButton* m_newProfileButton = nullptr;
+    QPushButton* m_editProfileButton = nullptr;
+    QPushButton* m_switchUserButton = nullptr;
+    QLabel* m_welcomeLabel = nullptr;
+    QLabel* m_versionLabel = nullptr;
+    bool m_updatingProfiles = false;
 
     unique_qobject_ptr<NewsChecker> m_newsChecker;
 

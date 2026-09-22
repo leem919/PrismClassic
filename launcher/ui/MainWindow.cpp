@@ -55,21 +55,32 @@
 #include <QActionGroup>
 #include <QApplication>
 #include <QButtonGroup>
+#include <QComboBox>
+#include <QCursor>
 #include <QFileDialog>
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QInputDialog>
 #include <QKeyEvent>
 #include <QLabel>
+#include <QListWidget>
 #include <QMainWindow>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QPixmap>
+#include <QPainter>
 #include <QProgressDialog>
+#include <QPushButton>
 #include <QShortcut>
+#include <QScrollBar>
 #include <QStatusBar>
+#include <QTabWidget>
+#include <QTextBrowser>
 #include <QToolBar>
 #include <QToolButton>
+#include <QVBoxLayout>
 #include <QWidget>
 #include <QWidgetAction>
 #include <memory>
@@ -94,6 +105,8 @@
 
 #include "ui/GuiUtil.h"
 #include "ui/ViewLogWindow.h"
+#include "ui/widgets/LogView.h"
+#include <launch/LogModel.h>
 #include "ui/dialogs/AboutDialog.h"
 #include "ui/dialogs/CopyInstanceDialog.h"
 #include "ui/dialogs/CreateShortcutDialog.h"
@@ -414,6 +427,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), ui(new Ui::MainWi
     }
 
     connect(ui->actionUndoTrashInstance, &QAction::triggered, this, &MainWindow::undoTrashInstance);
+
+    // OLauncher-classic layout: top tabs + bottom profile bar, system theme only.
+    setupClassicLayout();
 
     setSelectedInstanceById(APPLICATION->settings()->get("SelectedInstance").toString());
 
@@ -753,12 +769,14 @@ void MainWindow::defaultAccountChanged()
         } else {
             ui->actionAccountsButton->setIcon(face);
         }
+        refreshClassicAccount();
         return;
     }
 
     // Set the icon to the "no account" icon.
     ui->actionAccountsButton->setIcon(QIcon::fromTheme("noaccount"));
     ui->actionAccountsButton->setText(tr("Accounts"));
+    refreshClassicAccount();
 }
 
 bool MainWindow::eventFilter(QObject* obj, QEvent* ev)
@@ -809,6 +827,7 @@ void MainWindow::updateNewsLabel()
             ui->actionMoreNews->setVisible(false);
         }
     }
+    refreshNewsTab();
 }
 
 QList<int> stringToIntList(const QString& string)
@@ -1694,6 +1713,8 @@ void MainWindow::instanceChanged(const QModelIndex& current, [[maybe_unused]] co
         selectionBad();
         return;
     }
+    refreshProfileCombo();
+    refreshClassicStatus();
 }
 
 void MainWindow::instanceSelectRequest(QString id)
@@ -1722,6 +1743,7 @@ void MainWindow::selectionBad()
     updateLaunchButton();
     renameButton->setText(tr("Rename Instance"));
     updateInstanceToolIcon("grass");
+    refreshClassicStatus();
 
     // ...and then see if we can enable the previously selected instance
     setSelectedInstanceById(APPLICATION->settings()->get("SelectedInstance").toString());
@@ -1781,10 +1803,345 @@ void MainWindow::setInstanceActionsEnabled(bool enabled)
     ui->actionDeleteInstance->setEnabled(enabled);
     ui->actionCopyInstance->setEnabled(enabled);
     ui->actionCreateInstanceShortcut->setEnabled(enabled);
+    if (m_editProfileButton)
+        m_editProfileButton->setEnabled(enabled);
 }
 
 void MainWindow::refreshCurrentInstance()
 {
     auto current = view->selectionModel()->currentIndex();
     instanceChanged(current, current);
+}
+
+// OLauncher-classic layout: code-only fork, no .ui changes, system theme only.
+// Top tabs match O screenshot order: Update Notes | Launcher Log | Profile Editor.
+// Bottom bar matches O: Profile dropdown + New/Edit | Play | Welcome + Switch User.
+
+// Update Notes browser with a scrolling tiled-stone background.
+// The texture is baked into the exe via launcher/resources/classic/classic.qrc
+// (source file: launcher/resources/classic/notesbackground.png — you must
+// supply this PNG; rcc fails the build if it's missing). A palette brush
+// can't scroll, so the tiles are painted phase-locked to the scrollbar
+// positions and move together with the text. No stylesheets; the system
+// theme still draws everything else.
+class NotesBrowser : public QTextBrowser {
+   public:
+    using QTextBrowser::QTextBrowser;
+
+    void setStoneTile(const QPixmap& tile)
+    {
+        m_tile = tile;
+        viewport()->update();
+    }
+
+   protected:
+    void paintEvent(QPaintEvent* e) override
+    {
+        if (!m_tile.isNull()) {
+            QPainter painter(viewport());
+            int tw = m_tile.width();
+            int th = m_tile.height();
+            // Phase-lock tiles to the document origin so the texture scrolls
+            // together with the text. NOTE: positive phase — drawTiledPixmap
+            // treats the offset as source phase, so negating it (the "obvious"
+            // tile-origin math) moves the texture against the text.
+            int ox = tw ? (horizontalScrollBar()->value() % tw) : 0;
+            int oy = th ? (verticalScrollBar()->value() % th) : 0;
+            painter.drawTiledPixmap(viewport()->rect(), m_tile, QPoint(ox, oy));
+        }
+        QTextBrowser::paintEvent(e);
+    }
+
+   private:
+    QPixmap m_tile;
+};
+
+void MainWindow::setupClassicLayout()
+{
+    if (m_classicTabs)
+        return;
+
+    // Classic fork: with menubar-replacement on (the default), the icon toolbar
+    // stays hidden — the menu bar covers full Prism functionality.
+    ui->mainToolBar->setVisible(false);
+    ui->instanceToolBar->setVisible(false);
+    ui->newsToolBar->setVisible(false);
+    // The status bar stays governed by View > Status Bar (StatusBarVisible,
+    // off by default in this fork) instead of being forced here, so the
+    // toggle keeps working. The O bottom bar covers the same info.
+
+    // O's JFrame is 900x580 (olauncher Main.java setPreferredSize; the 854x480
+    // figure in their patches is the default *game* resolution, not the window).
+    // Apply it on first run only — afterwards the saved MainWindowGeometry wins
+    // (Application restores it after construction), so user resizes stick.
+    if (APPLICATION->settings()->get("MainWindowGeometry").toString().isEmpty())
+        resize(900, 580);
+
+    // Rebuild centralWidget: vertical layout with tabs on top, O bottom bar below.
+    QWidget* central = ui->centralWidget;
+    // Take ownership of the Designer horizontal layout without deleting `view`.
+    QLayout* oldLayout = central->layout();
+    if (oldLayout) {
+        oldLayout->removeWidget(view);
+    }
+    delete oldLayout;
+
+    auto* centralLayout = new QVBoxLayout(central);
+    centralLayout->setContentsMargins(4, 4, 4, 4);
+    centralLayout->setSpacing(4);
+
+    m_classicTabs = new QTabWidget(central);
+    centralLayout->addWidget(m_classicTabs, 1);
+
+    // --- Update Notes tab: every feed entry in one continuously scrolling page ---
+    m_newsPage = new QWidget(m_classicTabs);
+    auto* newsLayout = new QVBoxLayout(m_newsPage);
+    newsLayout->setContentsMargins(0, 0, 0, 0);
+    newsLayout->setSpacing(0);
+    auto* notesBrowser = new NotesBrowser(m_newsPage);
+    m_newsBrowser = notesBrowser;
+    m_newsBrowser->setOpenExternalLinks(true);
+    m_newsBrowser->setReadOnly(true);
+    // Baked-in stone tile (:/classic/notesbackground). Transparent base lets
+    // the painted tiles show through; O's light periwinkle links via palette
+    // + document stylesheet (both needed — the HTML parser resolves anchor
+    // colors independently of the widget palette).
+    notesBrowser->setStoneTile(QPixmap(":/classic/notesbackground"));
+    QPalette newsPal = m_newsBrowser->palette();
+    newsPal.setColor(QPalette::Base, Qt::transparent);
+    newsPal.setColor(QPalette::Link, QColor("#9aa5e8"));
+    newsPal.setColor(QPalette::LinkVisited, QColor("#9aa5e8"));
+    m_newsBrowser->setPalette(newsPal);
+    m_newsBrowser->viewport()->setAutoFillBackground(false);
+    // Document-level rules: transparent body (otherwise the document paints
+    // its own opaque background over the tiles) + O's light links (the
+    // rich-text HTML parser resolves anchor colors independently of the
+    // widget palette, which is why the palette alone didn't take).
+    m_newsBrowser->document()->setDefaultStyleSheet("body { background-color: transparent; } a { color: #9aa5e8; }");
+    newsLayout->addWidget(m_newsBrowser);
+    m_classicTabs->addTab(m_newsPage, tr("Update Notes"));
+
+    // --- Launcher Log tab: live launcher log model ---
+    m_logPage = new QWidget(m_classicTabs);
+    auto* logLayout = new QVBoxLayout(m_logPage);
+    logLayout->setContentsMargins(0, 0, 0, 0);
+    m_logView = new LogView(m_logPage);
+    m_logView->setReadOnly(true);
+    if (APPLICATION->logModel)
+        m_logView->setModel(APPLICATION->logModel.get());
+    logLayout->addWidget(m_logView);
+    m_classicTabs->addTab(m_logPage, tr("Launcher Log"));
+
+    // --- Profile Editor tab: the existing instance list becomes the editor ---
+    m_profilesPage = new QWidget(m_classicTabs);
+    m_profilesPageLayout = new QVBoxLayout(m_profilesPage);
+    m_profilesPageLayout->setContentsMargins(0, 0, 0, 0);
+    m_profilesPageLayout->addWidget(view);
+    view->setParent(m_profilesPage);
+    view->show();
+    m_classicTabs->addTab(m_profilesPage, tr("Profile Editor"));
+
+    // --- O bottom bar: left profiles, window-centered Play, right account ---
+    // NOTE: a 3-column grid with equal side stretches — plain stretches in a
+    // row only center Play in the leftover space, which sits off-center
+    // whenever the side blocks differ in width (as they do here).
+    auto* bottomBar = new QWidget(central);
+    auto* bottomLayout = new QGridLayout(bottomBar);
+    bottomLayout->setContentsMargins(0, 2, 0, 0);
+    bottomLayout->setSpacing(8);
+    bottomLayout->setColumnStretch(0, 1);
+    bottomLayout->setColumnStretch(1, 0);
+    bottomLayout->setColumnStretch(2, 1);
+
+    // Capped narrow like O (their left block is ~1/4 of the bar); without the
+    // cap the expanding buttons stretch it toward Play.
+    auto* profileWidget = new QWidget(bottomBar);
+    profileWidget->setMaximumWidth(230);
+    auto* profileBox = new QVBoxLayout(profileWidget);
+    profileBox->setSpacing(2);
+    profileBox->setContentsMargins(0, 0, 0, 0);
+    auto* profileRow = new QHBoxLayout();
+    profileRow->setSpacing(4);
+    auto* profileLabel = new QLabel(tr("Profile:"), bottomBar);
+    m_profileCombo = new QComboBox(bottomBar);
+    m_profileCombo->setMinimumWidth(160);
+    profileRow->addWidget(profileLabel);
+    profileRow->addWidget(m_profileCombo, 1);
+    auto* profileButtonsRow = new QHBoxLayout();
+    profileButtonsRow->setSpacing(4);
+    m_newProfileButton = new QPushButton(tr("New Profile"), bottomBar);
+    m_editProfileButton = new QPushButton(tr("Edit Profile"), bottomBar);
+    // Split the row evenly so the two buttons line up with the combo above.
+    m_newProfileButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_editProfileButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    profileButtonsRow->addWidget(m_newProfileButton);
+    profileButtonsRow->addWidget(m_editProfileButton);
+    profileBox->addLayout(profileRow);
+    profileBox->addLayout(profileButtonsRow);
+
+    m_playButton = new QPushButton(tr("Play"), bottomBar);
+    m_playButton->setMinimumSize(300, 40);
+    // Fill the bar height-wise, like O's tall Play button.
+    m_playButton->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+    // O's Play label is big and bold.
+    QFont playFont = m_playButton->font();
+    int playPs = playFont.pointSize();
+    playFont.setPointSize(playPs > 0 ? playPs + 2 : 10);
+    playFont.setBold(true);
+    m_playButton->setFont(playFont);
+
+    auto* accountBox = new QVBoxLayout();
+    accountBox->setSpacing(2);
+    m_welcomeLabel = new QLabel(tr("Welcome, (no account)"), bottomBar);
+    m_welcomeLabel->setAlignment(Qt::AlignHCenter | Qt::AlignVCenter);
+    // Single short status line, O-style: "Ready to play Minecraft <version>".
+    // All three right-side rows are direct full-width children: each spans the
+    // box width, so their axes coincide by construction however the texts
+    // change (no nested rows whose widths could diverge — that was the
+    // stubborn drift). Longest line defines the width; the version text hugs
+    // the right edge while Welcome and Switch User center on it.
+    m_versionLabel = new QLabel(tr("Ready to play Minecraft"), bottomBar);
+    m_versionLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    m_switchUserButton = new QPushButton(tr("Switch User"), bottomBar);
+    m_switchUserButton->setMinimumWidth(110);
+    accountBox->addWidget(m_welcomeLabel);
+    accountBox->addWidget(m_versionLabel);
+    accountBox->addWidget(m_switchUserButton, 0, Qt::AlignHCenter);
+
+    // O's bottom-bar text is a touch smaller than ambient (Swing default ~11px
+    // vs Qt's 9pt). Shrink the right-side lines by 1pt; family and everything
+    // else stay system-native, no stylesheets.
+    auto shrinkLabelFont = [](QLabel* label) {
+        QFont f = label->font();
+        int ps = f.pointSize();
+        f.setPointSize(ps > 0 ? qMax(7, ps - 1) : 8);
+        label->setFont(f);
+    };
+    shrinkLabelFont(m_welcomeLabel);
+    shrinkLabelFont(m_versionLabel);
+
+    bottomLayout->addWidget(profileWidget, 0, 0, Qt::AlignLeft | Qt::AlignVCenter);
+    bottomLayout->addWidget(m_playButton, 0, 1);
+    bottomLayout->addLayout(accountBox, 0, 2, Qt::AlignRight | Qt::AlignVCenter);
+
+    centralLayout->addWidget(bottomBar);
+
+    // Wiring: reuse existing slots, no logic duplication.
+    connect(m_playButton, &QPushButton::clicked, this, &MainWindow::on_actionLaunchInstance_triggered);
+    connect(m_newProfileButton, &QPushButton::clicked, this, &MainWindow::on_actionAddInstance_triggered);
+    connect(m_editProfileButton, &QPushButton::clicked, this, &MainWindow::on_actionEditInstance_triggered);
+    connect(m_profileCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onProfileComboChanged);
+    connect(m_switchUserButton, &QPushButton::clicked, this, [this] {
+        if (ui->accountsMenu && !ui->accountsMenu->isEmpty())
+            ui->accountsMenu->popup(QCursor::pos());
+        else
+            on_actionManageAccounts_triggered();
+    });
+
+    // Keep classic widgets in sync with Prism state.
+    connect(APPLICATION->instances(), &InstanceList::dataIsInvalid, this, &MainWindow::refreshProfileCombo);
+    connect(view->selectionModel(), &QItemSelectionModel::currentChanged, this, [this] { refreshClassicStatus(); });
+    connect(APPLICATION->accounts(), &AccountList::defaultAccountChanged, this, [this] { refreshClassicAccount(); });
+    connect(APPLICATION->accounts(), &AccountList::listChanged, this, [this] { refreshClassicAccount(); });
+    connect(m_newsChecker.get(), &NewsChecker::newsLoaded, this, &MainWindow::refreshNewsTab);
+
+    refreshProfileCombo();
+    refreshClassicAccount();
+    refreshClassicStatus();
+    refreshNewsTab();
+}
+
+void MainWindow::refreshProfileCombo()
+{
+    if (!m_profileCombo || !proxymodel)
+        return;
+    m_updatingProfiles = true;
+    m_profileCombo->blockSignals(true);
+    m_profileCombo->clear();
+    const int rows = proxymodel->rowCount();
+    QString currentId = m_selectedInstance ? m_selectedInstance->id() : QString();
+    int selectRow = -1;
+    for (int r = 0; r < rows; ++r) {
+        auto idx = proxymodel->index(r, 0);
+        QString id = idx.data(InstanceList::InstanceIDRole).toString();
+        QString name = idx.data(Qt::DisplayRole).toString();
+        m_profileCombo->addItem(name, id);
+        if (!currentId.isEmpty() && id == currentId)
+            selectRow = r;
+    }
+    if (selectRow >= 0)
+        m_profileCombo->setCurrentIndex(selectRow);
+    m_profileCombo->blockSignals(false);
+    m_updatingProfiles = false;
+}
+
+void MainWindow::onProfileComboChanged(int row)
+{
+    if (m_updatingProfiles || !m_profileCombo || row < 0)
+        return;
+    QString id = m_profileCombo->itemData(row).toString();
+    if (!id.isEmpty())
+        setSelectedInstanceById(id);
+}
+
+void MainWindow::refreshClassicAccount()
+{
+    if (!m_welcomeLabel)
+        return;
+    MinecraftAccountPtr account = APPLICATION->accounts()->defaultAccount();
+    if (account && !account->displayName().isEmpty())
+        m_welcomeLabel->setText(tr("Welcome, <b>%1</b>").arg(account->displayName().toHtmlEscaped()));
+    else
+        m_welcomeLabel->setText(tr("Welcome, (no account)"));
+}
+
+void MainWindow::refreshClassicStatus()
+{
+    if (!m_versionLabel || !m_playButton)
+        return;
+    // Short O-style line: "Ready to play Minecraft <version>".
+    if (m_selectedInstance) {
+        QString mcVersion;
+        if (auto profile = m_selectedInstance->getPackProfile()) {
+            if (auto comp = profile->getComponent("net.minecraft"))
+                mcVersion = comp->getVersion();
+        }
+        m_versionLabel->setText(mcVersion.isEmpty() ? tr("Ready to play Minecraft") : tr("Ready to play Minecraft %1").arg(mcVersion));
+        m_playButton->setEnabled(m_selectedInstance->canLaunch());
+        if (m_editProfileButton)
+            m_editProfileButton->setEnabled(true);
+    } else {
+        m_versionLabel->setText(tr("No instance selected"));
+        m_playButton->setEnabled(false);
+        if (m_editProfileButton)
+            m_editProfileButton->setEnabled(false);
+    }
+}
+
+void MainWindow::refreshNewsTab()
+{
+    if (!m_newsBrowser || !m_newsChecker)
+        return;
+    // NOTE: feed comes from BuildConfig.NEWS_RSS_URL
+    // (CMake cache Launcher_NEWS_RSS_URL, default
+    // https://prismlauncher.org/feed/feed.xml, Atom <entry> list).
+    // To show O-style MC patch notes instead, point that CMake var at an
+    // Atom feed with the same <entry>/<title>/<content>/<id> shape —
+    // e.g. a converter over https://ragedmeteor1837.github.io/mcnews/news/.
+    // No code change needed: NewsChecker parses any such feed.
+    const auto entries = m_newsChecker->getNewsEntries();
+    if (!entries.isEmpty()) {
+        QString html;
+        for (const auto& entry : entries) {
+            html += QString("<h2><a href=\"%1\">%2</a></h2>").arg(entry->link, entry->title.toHtmlEscaped());
+            html += entry->content;
+            html += "<hr>";
+        }
+        m_newsBrowser->setHtml(html);
+    } else if (!m_newsChecker->isLoadingNews()) {
+        QString err = m_newsChecker->getLastLoadErrorMsg();
+        m_newsBrowser->setPlainText(err.isEmpty() ? tr("No news available.") : err);
+    } else {
+        m_newsBrowser->setPlainText(tr("Loading news..."));
+    }
 }

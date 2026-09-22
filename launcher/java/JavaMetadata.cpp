@@ -68,11 +68,25 @@ Result<MetadataPtr> parseJavaMeta(const QJsonObject& in)
 
     if (in.contains("version")) {
         TRY_INTO(const auto& version, Json::requireObject(in, "version"))
-        TRY_INTO(const auto& name, Json::requireString(version, "name"))
+        // Azul/Eclipse archives carry no version name — only Mojang manifests
+        // do (mirrors the missing-build tolerance below). Default it instead
+        // of failing the whole file.
+        QString name;
+        if (version.contains("name")) {
+            TRY_INTO(const auto& parsedName, Json::requireString(version, "name"))
+            name = parsedName;
+        }
         TRY_INTO(const auto& major, Json::requireInteger(version, "major"))
         TRY_INTO(const auto& minor, Json::requireInteger(version, "minor"))
         TRY_INTO(const auto& security, Json::requireInteger(version, "security"))
-        TRY_INTO(const auto& build, Json::requireInteger(version, "build"))
+        // Mojang-vendor runtimes (piston manifests, e.g. java25's
+        // java-runtime-epsilon) carry no build number — only Adoptium
+        // archives do. Default it instead of failing the whole file.
+        int build = 0;
+        if (version.contains("build")) {
+            TRY_INTO(const auto& parsedBuild, Json::requireInteger(version, "build"))
+            build = parsedBuild;
+        }
         meta->version = JavaVersion(major, minor, security, build, name);
     }
     return meta;

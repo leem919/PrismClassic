@@ -653,14 +653,17 @@ Application::Application(int& argc, char** argv) : QApplication(argc, argv)
         m_settings.reset(new INISettingsObject({ BuildConfig.LAUNCHER_CONFIGFILE, "polymc.cfg", "multimc.cfg" }, this));
 
         // Theming
-        m_settings->registerSetting("IconTheme", QString());
-        m_settings->registerSetting("ApplicationTheme", QString());
+        // Classic fork defaults: system widget style + legacy (MultiMC) icons,
+        // pre-selected in the first-run Appearance wizard page.
+        m_settings->registerSetting("IconTheme", QString("multimc"));
+        m_settings->registerSetting("ApplicationTheme", QString("system"));
         m_settings->registerSetting("BackgroundCat", QString("kitteh"));
 
         // Remembered state
         m_settings->registerSetting("LastUsedGroupForNewInstance", QString());
 
-        m_settings->registerSetting("MenuBarInsteadOfToolBar", false);
+        // Classic fork: menu bar on by default (kept alongside the toolbar).
+        m_settings->registerSetting("MenuBarInsteadOfToolBar", true);
 
         m_settings->registerSetting("NumberOfConcurrentTasks", 10);
         m_settings->registerSetting("NumberOfConcurrentDownloads", 6);
@@ -815,7 +818,8 @@ Application::Application(int& argc, char** argv) : QApplication(argc, argv)
         m_settings->registerSetting("CatOpacity", 100);
         m_settings->registerSetting("CatFit", "fit");
 
-        m_settings->registerSetting("StatusBarVisible", true);
+        // Classic fork: status bar off by default (View > Status Bar re-enables).
+        m_settings->registerSetting("StatusBarVisible", false);
 
         m_settings->registerSetting("ToolbarsLocked", false);
 

@@ -1195,6 +1195,7 @@ endif()
 
 qt_add_resources(LAUNCHER_RESOURCES
     resources/backgrounds/backgrounds.qrc
+    resources/classic/classic.qrc
     resources/multimc/multimc.qrc
     resources/pe_dark/pe_dark.qrc
     resources/pe_light/pe_light.qrc
