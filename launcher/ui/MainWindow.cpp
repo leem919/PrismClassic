@@ -1913,11 +1913,12 @@ void MainWindow::setupClassicLayout()
     newsPal.setColor(QPalette::LinkVisited, QColor("#9aa5e8"));
     m_newsBrowser->setPalette(newsPal);
     m_newsBrowser->viewport()->setAutoFillBackground(false);
-    // Document-level rules: transparent body (otherwise the document paints
-    // its own opaque background over the tiles) + O's light links (the
-    // rich-text HTML parser resolves anchor colors independently of the
-    // widget palette, which is why the palette alone didn't take).
-    m_newsBrowser->document()->setDefaultStyleSheet("body { background-color: transparent; } a { color: #9aa5e8; }");
+    // Document-level rules: transparent body + O's grayish body text pinned
+    // (not the system Text color, which varies with light/dark OS themes) +
+    // O's light periwinkle links (the rich-text HTML parser resolves anchor
+    // colors independently of the widget palette, hence the explicit rule).
+    m_newsBrowser->document()->setDefaultStyleSheet(
+        "body { background-color: transparent; color: #e0d0d0; } a { color: #9aa5e8; }");
     newsLayout->addWidget(m_newsBrowser);
     m_classicTabs->addTab(m_newsPage, tr("Update Notes"));
 
@@ -2135,7 +2136,7 @@ void MainWindow::refreshNewsTab()
         for (const auto& entry : entries) {
             html += QString("<h2><a href=\"%1\">%2</a></h2>").arg(entry->link, entry->title.toHtmlEscaped());
             html += entry->content;
-            html += "<hr>";
+            html += "<br><br>";
         }
         m_newsBrowser->setHtml(html);
     } else if (!m_newsChecker->isLoadingNews()) {
