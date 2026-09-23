@@ -1907,8 +1907,15 @@ void MainWindow::setupClassicLayout()
     // + document stylesheet (both needed — the HTML parser resolves anchor
     // colors independently of the widget palette).
     notesBrowser->setStoneTile(QPixmap(":/classic/notesbackground"));
+    // Document-level rules: transparent body + O's grayish body text pinned
+    // (not the system Text color, which varies with light/dark OS themes) +
+    // O's light periwinkle links (the rich-text HTML parser resolves anchor
+    // colors independently of the widget palette, hence the explicit rule).
+    // Body text gets both the body rule AND per-element rules AND the palette
+    // fallback: bare `body` color alone provably doesn't reach the paragraphs.
     QPalette newsPal = m_newsBrowser->palette();
     newsPal.setColor(QPalette::Base, Qt::transparent);
+    newsPal.setColor(QPalette::Text, QColor("#e0d0d0"));
     newsPal.setColor(QPalette::Link, QColor("#9aa5e8"));
     newsPal.setColor(QPalette::LinkVisited, QColor("#9aa5e8"));
     m_newsBrowser->setPalette(newsPal);
@@ -1918,7 +1925,9 @@ void MainWindow::setupClassicLayout()
     // O's light periwinkle links (the rich-text HTML parser resolves anchor
     // colors independently of the widget palette, hence the explicit rule).
     m_newsBrowser->document()->setDefaultStyleSheet(
-        "body { background-color: transparent; color: #e0d0d0; } a { color: #9aa5e8; }");
+        "body { background-color: transparent; color: #e0d0d0; }"
+        " p, li, h1, h2, h3, div, ul, pre, code { color: #e0d0d0; }"
+        " a { color: #9aa5e8; }");
     newsLayout->addWidget(m_newsBrowser);
     m_classicTabs->addTab(m_newsPage, tr("Update Notes"));
 
