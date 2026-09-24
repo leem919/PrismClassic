@@ -2109,14 +2109,43 @@ void MainWindow::refreshClassicStatus()
 {
     if (!m_versionLabel || !m_playButton)
         return;
-    // Short O-style line: "Ready to play Minecraft <version>".
+    // Short O-style line: "Ready to play Minecraft <version> <modloader>".
     if (m_selectedInstance) {
         QString mcVersion;
+        QString loaderName;
         if (auto profile = m_selectedInstance->getPackProfile()) {
             if (auto comp = profile->getComponent("net.minecraft"))
                 mcVersion = comp->getVersion();
+            // First entry is the installed loader (compat shims append last).
+            const auto loaders = profile->getModLoadersList();
+            if (!loaders.isEmpty()) {
+                switch (loaders.first()) {
+                    case ModPlatform::NeoForge:
+                        loaderName = tr("NeoForge");
+                        break;
+                    case ModPlatform::Forge:
+                        loaderName = tr("Forge");
+                        break;
+                    case ModPlatform::Fabric:
+                        loaderName = tr("Fabric");
+                        break;
+                    case ModPlatform::Quilt:
+                        loaderName = tr("Quilt");
+                        break;
+                    case ModPlatform::LiteLoader:
+                        loaderName = tr("LiteLoader");
+                        break;
+                    default:
+                        break;
+                }
+            }
         }
-        m_versionLabel->setText(mcVersion.isEmpty() ? tr("Ready to play Minecraft") : tr("Ready to play Minecraft %1").arg(mcVersion));
+        QString label = tr("Ready to play Minecraft");
+        if (!mcVersion.isEmpty())
+            label += " " + mcVersion;
+        if (!loaderName.isEmpty())
+            label += " " + loaderName;
+        m_versionLabel->setText(label);
         m_playButton->setEnabled(m_selectedInstance->canLaunch());
         if (m_editProfileButton)
             m_editProfileButton->setEnabled(true);
