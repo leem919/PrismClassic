@@ -2011,7 +2011,7 @@ void MainWindow::setupClassicLayout()
     // stubborn drift). Longest line defines the width; the version text hugs
     // the right edge while Welcome and Switch User center on it.
     m_versionLabel = new QLabel(tr("Ready to play Minecraft"), bottomBar);
-    m_versionLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    m_versionLabel->setAlignment(Qt::AlignHCenter | Qt::AlignVCenter);
     m_switchUserButton = new QPushButton(tr("Switch User"), bottomBar);
     m_switchUserButton->setMinimumWidth(110);
     accountBox->addWidget(m_welcomeLabel);
@@ -2050,6 +2050,9 @@ void MainWindow::setupClassicLayout()
 
     // Keep classic widgets in sync with Prism state.
     connect(APPLICATION->instances(), &InstanceList::dataIsInvalid, this, &MainWindow::refreshProfileCombo);
+    // Deletions (and adds/renames) emit instancesChanged, not dataIsInvalid —
+    // without this the combo keeps showing deleted profiles until restart.
+    connect(APPLICATION->instances(), &InstanceList::instancesChanged, this, &MainWindow::refreshProfileCombo);
     connect(view->selectionModel(), &QItemSelectionModel::currentChanged, this, [this] { refreshClassicStatus(); });
     connect(APPLICATION->accounts(), &AccountList::defaultAccountChanged, this, [this] { refreshClassicAccount(); });
     connect(APPLICATION->accounts(), &AccountList::listChanged, this, [this] { refreshClassicAccount(); });
